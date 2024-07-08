@@ -96,14 +96,83 @@ def homepage():
     return render_template("homepage.html")
 
 #C-setting/profile
-@app.route("/user/setting/profile", methods=["GET","POST"])
+@app.route("/setting/profile", methods=["GET"])
 def setting_profile():
-    return render_template("setting_profile.html")
+    if 'logged_in' in session:
+        username = session["username"]
+        cur = mysql.connection.cursor()
+        # Selecting user information to pre-fill the form
+        cur.execute("SELECT username, name, email, phone, dob, address, occupation FROM user WHERE username = %s", (username,))
+        profile_data = cur.fetchone()
+        cur.close()
+
+        if profile_data:
+            # Pass the profile data to the template to view
+            return render_template('setting_profile.html', profile=profile_data)
+        else:
+            flash("User not found.", "danger")
+            return redirect(url_for('setting_profile'))
+    else:
+        flash("Please log in to view this page.", "warning")
+        return redirect(url_for('login'))
 
 #C-setting/profile/edit profile
-@app.route("/user/setting/profile/edit", methods=["GET","POST"])
-def setting_profile_edit():
-    return render_template("setting_profile_edit.html")
+@app.route("/setting/profile/edit", methods=["GET", "POST"])
+def edit_profile():
+    if 'logged_in' not in session:
+        flash("Please log in to view this page.", "warning")
+        return redirect(url_for('login'))
+
+    username = session["username"]
+
+    if request.method == 'POST':
+        # Fetching form data
+        username = request.form['username']
+        password = request.form['password']
+        name = request.form['name']
+        email = request.form['email']
+        phone = request.form.get('phone', '')  # Optional fields can use .get to avoid KeyError
+        dob = request.form.get('dob', '')
+        address = request.form.get('address', '')
+        occupation = request.form.get('occupation', '')
+
+        # Check if the updated username conflicts with existing usernames
+        cur = mysql.connection.cursor()
+        cur.execute("SELECT * FROM user WHERE username = %s", (username,))
+        existing_user = cur.fetchone()
+        if existing_user and existing_user['username'] != session['username']:
+            flash(f"Username '{username}' already exists. Please choose a different username.", "danger")
+            return redirect(url_for('edit_profile'))
+
+        # Update query for the user table
+        query = """
+        UPDATE user 
+        SET username = %s, password = %s, name = %s, email = %s, phone = %s, dob = %s, address = %s, occupation = %s
+        WHERE username = %s
+        """
+        data = (username, password, name, email, phone, dob, address, occupation, session['username'])
+
+        cur.execute(query, data)
+        mysql.connection.commit()
+        cur.close()
+
+        flash("Profile updated successfully", "success")
+        return redirect(url_for('setting_profile'))
+    else:
+        cur = mysql.connection.cursor()
+        # Selecting user information to pre-fill the form
+        cur.execute("SELECT username, password, name, email, phone, dob, address, occupation FROM user WHERE username = %s", (session['username'],))
+        profile_data = cur.fetchone()
+        cur.close()
+
+        if profile_data:
+            # Pass the profile data to the template to pre-fill the form
+            return render_template('edit_profile.html', profile=profile_data)
+        else:
+            flash("User not found.", "danger")
+            return redirect(url_for('edit_profile'))
+
+
 
 #C-setting/payment method
 @app.route("/user/setting/payment_method", methods=["GET","POST"])
@@ -151,14 +220,81 @@ def laptop():
     return render_template("laptop.html")
 
 #C-laptop/search+filter result
-@app.route("/laptop/search", methods=["GET","POST"])
+@app.route("/laptop/search", methods=["GET"])
 def laptop_search():
-    return render_template("laptop_search.html")
+    search_query = request.args.get('search', '')  # Get the search query from the URL parameters
+    
+    # Simulate fetching laptops from a database based on the search query
+    laptops = []
+
+    # Fetch laptops from the database using Flask-MySQL
+    cur = mysql.connection.cursor()
+    cur.execute("SELECT * FROM product")
+    all_laptops = cur.fetchall()
+    cur.close()
+
+    # Iterate over the fetched laptops and create a dictionary for each laptop
+    for laptop in all_laptops:
+        laptop_details = {
+            'product_id': laptop[0],
+            'product_name': laptop[1],
+            'processor': laptop[2],
+            'graphics': laptop[3],
+            'dimensions': laptop[4],
+            'weight': laptop[5],
+            'os': laptop[6],
+            'memory': laptop[7],
+            'storage': laptop[8],
+            'power_supply': laptop[9],
+            'battery': laptop[10],
+            'price': laptop[11]
+        }
+        laptops.append(laptop_details)
+
+    # Filter laptops based on the search query
+    filtered_laptops = [laptop for laptop in laptops if search_query.lower() in laptop['product_name'].lower()]
+
+    # Check if filtered_laptops is empty
+    if not filtered_laptops:
+        # Pass a message to the template indicating no laptops were found
+        return render_template("laptop_search.html", search_query=search_query, laptops=filtered_laptops, message="No laptops available matching your search.")
+    else:
+        return render_template("laptop_search.html", search_query=search_query, laptops=filtered_laptops)
+
+
 
 #C-laptop/detail
-@app.route("/laptop/detail", methods=["GET","POST"])
-def laptop_detail():
-    return render_template("laptop_detail.html")
+@app.route("/laptop/detail/<int:product_id>", methods=["GET"])
+def laptop_detail(product_id):
+    # Fetch laptop details from the database using Flask-MySQL
+    with mysql.connection.cursor() as cur:
+        cur.execute("SELECT * FROM product WHERE product_id = %s", (product_id,))
+        product = cur.fetchone()
+
+    cur.close()
+
+    if product:
+        product_details = {
+            'product_id': product.product_id,
+            'product_name': product.product_name,
+            'processor': product.processor,
+            'graphics': product.graphics,
+            'dimensions': product.dimensions,
+            'weight': product.weight,
+            'os': product.os,
+            'memory': product.memory,
+            'storage': product.storage,
+            'power_supply': product.power_supply,
+            'battery': product.battery,
+            'price': product.price
+        }
+        # Pass laptop_details to the template
+        return render_template("laptop_detail.html", product_details=product_details)
+    
+    else:
+        return render_template("laptop_detail.html", message="Laptop not found.")
+
+
 
 #C-cart(all)
 @app.route("/cart", methods=["GET","POST"])
